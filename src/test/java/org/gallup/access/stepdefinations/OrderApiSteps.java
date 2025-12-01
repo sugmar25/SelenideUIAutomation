@@ -1,16 +1,16 @@
 package org.gallup.access.stepdefinations;
 
 
-import io.cucumber.cienvironment.internal.com.eclipsesource.json.JsonObject;
-import io.cucumber.cienvironment.internal.com.eclipsesource.json.JsonParser;
-import io.cucumber.java.PendingException;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
+import io.qameta.allure.internal.shadowed.jackson.core.JsonProcessingException;
 import io.qameta.allure.internal.shadowed.jackson.databind.JsonNode;
 import io.qameta.allure.internal.shadowed.jackson.databind.ObjectMapper;
 import io.restassured.RestAssured;
+import io.restassured.http.ContentType;
 import io.restassured.response.Response;
+import org.gallup.access.pojo.Users;
 import org.gallup.access.utils.ApiRequestSpec;
 import org.gallup.access.utils.JwtUtils;
 import org.gallup.access.utils.OAuth2TokenManager;
@@ -18,13 +18,11 @@ import org.gallup.access.utils.PayloadReader;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
-import static org.gallup.access.utils.JwtUtils.getClaims;
+import static io.restassured.module.jsv.JsonSchemaValidator.matchesJsonSchemaInClasspath;
+import static org.testng.Assert.assertEquals;
 
 public class OrderApiSteps {
 
@@ -41,7 +39,7 @@ public class OrderApiSteps {
     @Then("the order status should be {string}")
     public void theOrderStatusShouldBe(String expectedStatus) {
         String actualStatus = response.jsonPath().getString("status");
-        Assert.assertEquals(expectedStatus, actualStatus);
+        assertEquals(expectedStatus, actualStatus);
 
     }
 
@@ -51,7 +49,7 @@ public class OrderApiSteps {
             this.response = given().spec(ApiRequestSpec.getEcho()).get("/get");
             String actualStatus = response.jsonPath().toString();
             int statusCode = response.getStatusCode();
-            Assert.assertEquals(statusCode, 200);
+            assertEquals(statusCode, 200);
             System.out.println(actualStatus);
             String jsonString = response.getBody().asString();
 
@@ -82,7 +80,7 @@ public class OrderApiSteps {
             String payload = PayloadReader.getPayload("src/test/java/org/gallup/access/payload/PostPayload.json");
             this.response = given().spec(ApiRequestSpec.getEcho()).body(payload).post("/post");
             System.out.println("Response:\n" + response.getBody().asPrettyString());
-            Assert.assertEquals(response.getStatusCode(), 200);
+            assertEquals(response.getStatusCode(), 200);
 
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -132,8 +130,58 @@ public class OrderApiSteps {
         System.out.println("Expiry: " + claims.get("exp"));
         System.out.println("Subject: " + claims.get("sub"));
         return claims;
-        
     }
+
+    @Test
+    public void testJsonSchema() {
+        given()
+                .get("/users/1")
+                .then()
+                .assertThat()
+                .body(matchesJsonSchemaInClasspath("user-schema.json"));
+    }
+
+    public static String jsonresponsereader() throws JsonProcessingException {
+        Users user = new Users();
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.writeValueAsString(user);
+    }
+
+    public static Users jsonresponewriter() throws JsonProcessingException {
+        Users user = new Users();
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonString = mapper.writeValueAsString(user);
+        return mapper.readValue(jsonString, Users.class);
+    }
+    //Serialization Example
+    @Test
+    public void createUser() {
+        Users user = new Users(1, "Sugumar", "Sugumar@example.com", "IT", "Tester");
+        given()
+                .contentType(ContentType.JSON)
+                .body(user) // POJO automatically serialized to JSON
+                .when()
+                .post("/users")
+                .then()
+                .statusCode(201);
+    }
+
+    //Deserialization Example
+    @Test
+    public void getUser() {
+        Users user = given()
+                .get("/users/1")
+                .then()
+                .statusCode(200)
+                .extract()
+                .as(Users.class); // JSON → POJO
+
+        // Assertions on POJO fields
+        assertEquals(1, user.getId());
+        assertEquals("Brinda", user.getName());
+    }
+
+
 
 
 }
