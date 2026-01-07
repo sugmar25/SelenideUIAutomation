@@ -2,6 +2,11 @@ package org.gallup.access.payload;
 
 public class JobPayloadBuilder {
     private String title;
+
+    public String getTitle() {
+        return title;
+    }
+
     private String location;
     private int salary;
 
@@ -29,5 +34,9 @@ public class JobPayloadBuilder {
             .setTitle("QA Engineer")
             .setLocation("Berlin")
             .setSalary(80000)
+            .build();
+
+    String payloadNonMandate = new JobPayloadBuilder()
+            .setSalary(1000)
             .build();
 }

@@ -2,15 +2,16 @@ package org.gallup.access.stepdefinations;
 
 
 import io.cucumber.cienvironment.internal.com.eclipsesource.json.JsonObject;
-import io.cucumber.cienvironment.internal.com.eclipsesource.json.JsonParser;
 import io.cucumber.java.PendingException;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
+import io.qameta.allure.internal.shadowed.jackson.core.JsonParser;
 import io.qameta.allure.internal.shadowed.jackson.databind.JsonNode;
 import io.qameta.allure.internal.shadowed.jackson.databind.ObjectMapper;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
+import org.gallup.access.payload.JobPayloadBuilder;
 import org.gallup.access.utils.ApiRequestSpec;
 import org.gallup.access.utils.JwtUtils;
 import org.gallup.access.utils.OAuth2TokenManager;
@@ -18,6 +19,7 @@ import org.gallup.access.utils.PayloadReader;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -25,6 +27,7 @@ import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 import static org.gallup.access.utils.JwtUtils.getClaims;
+import static org.testng.AssertJUnit.assertEquals;
 
 public class OrderApiSteps {
 
@@ -118,13 +121,70 @@ public class OrderApiSteps {
     }
 
     @Test
-    public void testProtectedEndpoint() {
+    public void testProtectedEndpoint() throws IOException {
         Response response = RestAssured
                 .given()
                 .spec(OAuth2TokenManager.getRequestSpec())
                 .get("/protected/resource");
 
         response.then().statusCode(200);
+
+        //Deserizalization
+        JobPayloadBuilder jobpayloadbuilder = RestAssured
+                .given()
+                .spec(OAuth2TokenManager.getRequestSpec())
+                .get("/protected/resource")
+                .then()
+                .statusCode(200)
+                .extract()
+                .as(JobPayloadBuilder.class);
+
+        assertEquals("Berlin",jobpayloadbuilder.getTitle());
+
+        //way 2
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.readValues((JsonParser) response,JobPayloadBuilder.class);
+
+        //way3
+        JobPayloadBuilder jobpayloadbuilder1= mapper.readValue(response.toString(),JobPayloadBuilder.class);
+        jobpayloadbuilder1.getTitle();
+
+        //Seriyalization with Builder design pattern
+        JobPayload payload = new JobPayloadBuilderNew()
+                .setTitle("QA Engineer")
+                .setLocation("Berlin")
+                .setSalary(80000)
+                .build();
+
+        JobPayload payload2 = new JobPayloadBuilderNew()
+                .setTitle("QA Engineer")
+                .setLocation("Berlin")
+                .build();
+
+        JobPayload payload3 = new JobPayloadBuilderNew()
+                .build();
+
+        String payloadbody =mapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);
+
+        JobPayloadBuilder jobpayloadbuilderReponse = RestAssured
+                .given()
+                .spec(OAuth2TokenManager.getRequestSpec())
+                .body(payloadbody)
+                .when()
+                .post("/protected/resource")
+                .then()
+                .statusCode(200)
+                .extract()
+                .as(JobPayloadBuilder.class);
+
+        assertEquals("Berlin",jobpayloadbuilderReponse.getTitle());
+
+
+
+
+
+
+
     }
 
     public static Map<String, Object> retrieveJWTtoken() {
@@ -132,7 +192,6 @@ public class OrderApiSteps {
         System.out.println("Expiry: " + claims.get("exp"));
         System.out.println("Subject: " + claims.get("sub"));
         return claims;
-        
     }
 
 

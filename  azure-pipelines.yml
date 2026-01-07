@@ -1,0 +1,183 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: "0 6 * * *"     # Daily at 06:00 UTC
+    displayName: Daily Smoke Test
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+
+  # -------------------------
+  #   PRECONDITION STAGE
+  # -------------------------
+  - stage: Precondition
+    displayName: "Preconditioning Setup"
+    jobs:
+      - job: PreconditionJob
+        displayName: "Run Precondition Script"
+        steps:
+          - script: |
+              echo "Running precondition setup..."
+              # Add your setup commands here
+            displayName: "Execute Precondition"
+
+  # -------------------------
+  #   EXECUTION STAGE
+  # -------------------------
+  - stage: SmokeExecution
+    displayName: "Test Execution Stage"
+    dependsOn: Precondition
+    jobs:
+
+      # -------------------------
+      #   SCHEDULED RUN → ONLY @smoke
+      # -------------------------
+      - job: ScheduledSmoke
+        displayName: "Scheduled Daily Smoke Run"
+        condition: eq(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@smoke"
+            displayName: "Run @smoke tag"
+
+      # -------------------------
+      #   MANUAL/CI RUN → 10 PARALLEL JOBS
+      # -------------------------
+      - job: Job1
+        displayName: "Run @createOrder"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@createOrder"
+
+      - job: Job2
+        displayName: "Run @updateOrder"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@updateOrder"
+
+      - job: Job3
+        displayName: "Run @cancelOrder"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@cancelOrder"
+
+      - job: Job4
+        displayName: "Run @searchOrder"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@searchOrder"
+
+      - job: Job5
+        displayName: "Run @payment"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@payment"
+
+      - job: Job6
+        displayName: "Run @refund"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@refund"
+
+      - job: Job7
+        displayName: "Run @login"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@login"
+
+      - job: Job8
+        displayName: "Run @signup"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@signup"
+
+      - job: Job9
+        displayName: "Run @inventory"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@inventory"
+
+      - job: Job10
+        displayName: "Run @notification"
+        condition: ne(variables['Build.Reason'], 'Schedule')
+        steps:
+          - checkout: self
+          - script: mvn clean test -Dcucumber.filter.tags="@notification"
+
+  # -------------------------
+  #   RERUN FAILED TESTS STAGE
+  # -------------------------
+  - stage: RerunFailed
+    displayName: "Rerun Failed Tests"
+    dependsOn: SmokeExecution
+    condition: succeededOrFailed()   # Always run even if previous jobs failed
+
+    jobs:
+      - job: CheckAndRerun
+        displayName: "Check failed-tests.txt and rerun"
+        steps:
+
+          - checkout: self
+
+          # Step 1: Check if file exists and has content
+          - script: |
+              echo "Checking for failed tests file..."
+              if [ ! -f target/failed-tests.txt ]; then
+                echo "No failed-tests.txt found. Skipping rerun."
+                echo "rerun=false" >> rerun_vars.txt
+                exit 0
+              fi
+              
+              if [ ! -s target/failed-tests.txt ]; then
+                echo "failed-tests.txt is empty. No rerun needed."
+                echo "rerun=false" >> rerun_vars.txt
+                exit 0
+              fi
+              
+              echo "Failed tests found:"
+              cat target/failed-tests.txt
+              
+              echo "rerun=true" >> rerun_vars.txt
+            displayName: "Check failed tests"
+
+          - task: Bash@3
+            name: setVars
+            inputs:
+              targetType: inline
+              script: |
+                source rerun_vars.txt
+                echo "##vso[task.setvariable variable=rerun]$rerun"
+            displayName: "Set rerun variable"
+
+          # Step 2: Conditional rerun
+          - script: |
+              echo "Starting rerun of failed tests..."
+              TAGS=$(paste -sd " || " target/failed-tests.txt)
+              echo "Executing rerun with tags: $TAGS"
+              
+              mvn clean test -Dcucumber.filter.tags="$TAGS"
+            condition: eq(variables['rerun'], 'true')
+            displayName: "Rerun failed tests"
+
+          - script: |
+              echo "No failed tests. Rerun skipped."
+            condition: ne(variables['rerun'], 'true')
+            displayName: "Skip rerun"

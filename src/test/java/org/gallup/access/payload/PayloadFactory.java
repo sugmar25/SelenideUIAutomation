@@ -21,6 +21,10 @@ public class PayloadFactory {
     JobPayloadBuilder builder = PayloadFactory.getJobBuilder();
     String payload1 = builder.setSalary(90000).build();
 
+
+
+
+
 //    “For simple payloads, I use the Factory pattern.
 //    For dynamic or complex payloads, I use the Builder pattern.
 //    In some cases, the Factory returns a Builder instance to allow further customization.”

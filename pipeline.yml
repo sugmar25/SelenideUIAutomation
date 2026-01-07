@@ -1,0 +1,147 @@
+trigger: none   # Only manual + schedules
+
+# -----------------------------
+# DAILY SCHEDULED SMOKE RUN
+# -----------------------------
+schedules:
+  - cron: "0 11 * * *"     # Every day at 11:00
+    displayName: "Daily Smoke Execution"
+    branches:
+      include:
+        - main
+    always: true
+    # You could inject a variable here like testTag: "@smoke"
+    # but we'll instead handle tags at job level.
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  MAVEN_OPTS: "-Dmaven.test.failure.ignore=false"
+  REPORT_DIR: "target"
+  CUCUMBER_REPORT: "target/cucumber-report.html"
+  ARTIFACT_NAME: "test-results"
+
+# =======================================
+# STAGE 1: BUILD (OPTIONAL BUT CLEAN)
+# =======================================
+stages:
+  - stage: Build
+    displayName: "Build Stage"
+    jobs:
+      - job: build_job
+        displayName: "Maven Clean & Compile"
+        steps:
+          - task: Maven@4
+            displayName: "Maven Clean Compile"
+            inputs:
+              mavenPomFile: "pom.xml"
+              goals: "clean compile"
+              options: "$(MAVEN_OPTS)"
+              publishJUnitResults: false
+              javaHomeOption: "JDKVersion"
+              jdkVersionOption: "1.11"
+              mavenVersionOption: "Default"
+
+  # =======================================
+  # STAGE 2: TEST (MATRIX + RETRY)
+  # =======================================
+  - stage: Test
+    displayName: "Test Stage - Matrix Parallel Execution"
+    dependsOn: Build
+    jobs:
+      - job: matrix_tests
+        displayName: "Matrix tests with different tags"
+        strategy:
+          matrix:
+            tag1:
+              cucumberTag: "@tag1"
+            tag2:
+              cucumberTag: "@tag2"
+            tag3:
+              cucumberTag: "@tag3"
+            tag4:
+              cucumberTag: "@tag4"
+            tag5:
+              cucumberTag: "@tag5"
+            tag6:
+              cucumberTag: "@tag6"
+            tag7:
+              cucumberTag: "@tag7"
+            tag8:
+              cucumberTag: "@tag8"
+            tag9:
+              cucumberTag: "@tag9"
+            tag10:
+              cucumberTag: "@tag10"
+          maxParallel: 10
+        timeoutInMinutes: 60
+
+        # Simple retry logic: rerun job on failure (once)
+        # Azure DevOps doesn't have native retry keyword; simulate via condition + dependsOn,
+        # but here we show a simple bash-level retry inside the job.
+        steps:
+          - script: |
+              echo "Running tests for tag: $(cucumberTag)"
+              mvn clean test -Dcucumber.filter.tags="$(cucumberTag)" $(MAVEN_OPTS) || \
+              (echo "First attempt failed, retrying once..." && mvn test -Dcucumber.filter.tags="$(cucumberTag)" $(MAVEN_OPTS))
+            displayName: "Run Maven tests with retry for $(cucumberTag)"
+
+          # Publish cucumber reports as build artifacts per tag
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish test results for $(cucumberTag)"
+            inputs:
+              PathtoPublish: "$(REPORT_DIR)"
+              ArtifactName: "$(ARTIFACT_NAME)_$(cucumberTag)"
+              publishLocation: "Container"
+
+  # =======================================
+  # STAGE 3: REPORTS (MERGE / PUBLISH)
+  # =======================================
+  - stage: Reports
+    displayName: "Reporting Stage"
+    dependsOn: Test
+    jobs:
+      - job: publish_reports
+        displayName: "Publish Cucumber HTML Reports"
+        steps:
+          # Download artifacts from previous stage (all tags)
+          - task: DownloadBuildArtifacts@1
+            displayName: "Download all test artifacts"
+            inputs:
+              buildType: "current"
+              downloadType: "single"
+              artifactName: "$(ARTIFACT_NAME)_@tag1"  # adjust if you want all; or use multiple tasks
+              downloadPath: "$(System.DefaultWorkingDirectory)/artifacts"
+
+          # Example: publish cucumber HTML report (from one location or aggregated)
+          - task: PublishHtmlReports@1
+            displayName: "Publish Cucumber HTML Report"
+            inputs:
+              reportDir: "$(System.DefaultWorkingDirectory)/artifacts"
+              tabName: "Cucumber Report"
+              reportTitle: "Cucumber Test Report"
+
+  # =======================================
+  # STAGE 4: PUBLISH TO JFROG
+  # =======================================
+  - stage: Publish
+    displayName: "Publish to JFrog Stage"
+    dependsOn: Reports
+    jobs:
+      - job: jfrog_publish
+        displayName: "Upload artifacts to JFrog"
+        steps:
+          - task: DownloadBuildArtifacts@1
+            displayName: "Download all test artifacts for JFrog"
+            inputs:
+              buildType: "current"
+              downloadType: "single"
+              artifactName: "$(ARTIFACT_NAME)_@tag1"   # or generalize / loop as needed
+              downloadPath: "$(System.DefaultWorkingDirectory)/jfrog_artifacts"
+
+          - script: |
+              echo "Uploading artifacts to JFrog..."
+              ARTIFACT_PATH="$(System.DefaultWorkingDirectory)/jfrog_artifacts"
+              curl -u $(JFROG_USER):$(JFROG_PASSWORD) -T "${ARTIFACT_PATH}/cucumber-report.html" "$(JFROG_URL)/$(JFROG_REPO)/cucumber-report-$(Build.BuildId).html"
+            displayName: "Upload Cucumber Report to JFrog (example)"

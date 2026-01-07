@@ -18,7 +18,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.util.*;
 import java.util.stream.IntStream;
 
-public class AbstractComponent {
+public abstract class AbstractComponent {
 
     /**
      * Waits explicitly for a SelenideElement to become visible within the given timeout.

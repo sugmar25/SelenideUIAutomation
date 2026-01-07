@@ -1,0 +1,79 @@
+# ============================================================
+# 1. Daily Smoke Test CronJob
+# ============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: automation-smoke-cron
+spec:
+  schedule: "0 6 * * *"   # Daily at 06:00 UTC
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: automation-runner
+              image: your-registry/automation-runner:latest
+              command: ["bash", "-c"]
+              args:
+                - mvn clean test -Dcucumber.filter.tags='@smoke'
+
+---
+# ============================================================
+# 2. Parallel Job (10 Pods, Each Runs a Different Tag)
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: automation-parallel
+spec:
+  parallelism: 10
+  completions: 10
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: automation-runner
+          image: your-registry/automation-runner:latest
+          command: ["bash", "-c"]
+          args:
+            - |
+              TAGS=("@createOrder" "@updateOrder" "@cancelOrder" "@searchOrder" "@payment" "@refund" "@login" "@signup" "@inventory" "@notification")
+              INDEX=$((${HOSTNAME##*-}))
+              TAG=${TAGS[$INDEX]}
+              echo "Running tag: $TAG"
+              mvn clean test -Dcucumber.filter.tags="$TAG"
+
+---
+# ============================================================
+# 3. Rerun Failed Tests Job
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: automation-rerun-failed
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: automation-runner
+          image: your-registry/automation-runner:latest
+          command: ["bash", "-c"]
+          args:
+            - |
+              if [ ! -f target/failed-tests.txt ]; then
+                echo "No failed tests file found. Exiting."
+                exit 0
+              fi
+
+              if [ ! -s target/failed-tests.txt ]; then
+                echo "Failed tests file empty. Exiting."
+                exit 0
+              fi
+
+              TAGS=$(paste -sd " || " target/failed-tests.txt)
+              echo "Re-running failed tests: $TAGS"
+
+              mvn clean test -Dcucumber.filter.tags="$TAGS"c x
